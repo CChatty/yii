@@ -4707,7 +4707,17 @@ class CHttpSession extends CApplicationComponent implements IteratorAggregate,Ar
 		extract($data);
 		extract($value);
 		$this->freeze();
-		if(isset($httponly))
+		if(isset($httponly) && isset($samesite))
+			if(version_compare(PHP_VERSION,'7.3.0','>='))
+				session_set_cookie_params(array('lifetime'=>$lifetime,'path'=>$path,'domain'=>$domain,'secure'=>$secure,'httponly'=>$httponly,'samesite'=>$samesite));
+			else
+			{
+				// Work around for setting samesite cookie prior PHP 7.3
+				// https://stackoverflow.com/questions/39750906/php-setcookie-samesite-strict/46971326#46971326
+				$path .= '; samesite=' . $samesite;
+				session_set_cookie_params($lifetime,$path,$domain,$secure,$httponly);
+			}
+		elseif(isset($httponly))
 			session_set_cookie_params($lifetime,$path,$domain,$secure,$httponly);
 		else
 			session_set_cookie_params($lifetime,$path,$domain,$secure);
@@ -9341,28 +9351,35 @@ class CSqliteSchema extends CDbSchema
 	}
 	protected function findColumns($table)
 	{
-		$sql="PRAGMA table_info({$table->rawName})";
-		$columns=$this->getDbConnection()->createCommand($sql)->queryAll();
-		if(empty($columns))
+    		$sql=<<<EOD
+SELECT a.attname, LOWER(format_type(a.atttypid, a.atttypmod)) AS type, CAST(pg_get_expr(d.adbin, d.adrelid) AS varchar) AS column_def_value, a.attnotnull, a.atthasdef,
+	pg_catalog.col_description(a.attrelid, a.attnum) AS comment
+FROM pg_attribute a LEFT JOIN pg_attrdef d ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+WHERE a.attnum > 0 AND NOT a.attisdropped
+	AND a.attrelid = (SELECT oid FROM pg_catalog.pg_class WHERE relname=:table
+		AND relnamespace = (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = :schema))
+ORDER BY a.attnum
+EOD;
+		$command=$this->getDbConnection()->createCommand($sql);
+		$command->bindValue(':table',$table->name);
+		$command->bindValue(':schema',$table->schemaName);
+
+		if(($columns=$command->queryAll())===array())
 			return false;
+
 		foreach($columns as $column)
 		{
 			$c=$this->createColumn($column);
 			$table->columns[$c->name]=$c;
-			if($c->isPrimaryKey)
+
+			if(stripos($column['column_def_value'],'nextval')===0 && preg_match('/nextval\([^\']*\'([^\']+)\'[^\)]*\)/i',$column['column_def_value'],$matches))
 			{
-				if($table->primaryKey===null)
-					$table->primaryKey=$c->name;
-				elseif(is_string($table->primaryKey))
-					$table->primaryKey=array($table->primaryKey,$c->name);
+				if(strpos($matches[1],'.')!==false || $table->schemaName===self::DEFAULT_SCHEMA)
+					$this->_sequences[$table->rawName.'.'.$c->name]=$matches[1];
 				else
-					$table->primaryKey[]=$c->name;
+					$this->_sequences[$table->rawName.'.'.$c->name]=$table->schemaName.'.'.$matches[1];
+				$c->autoIncrement=true;
 			}
-		}
-		if(is_string($table->primaryKey) && !strncasecmp($table->columns[$table->primaryKey]->dbType,'int',3))
-		{
-			$table->sequenceName='';
-			$table->columns[$table->primaryKey]->autoIncrement=true;
 		}
 		return true;
 	}
