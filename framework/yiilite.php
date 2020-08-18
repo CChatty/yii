@@ -3095,20 +3095,32 @@ class CCookieCollection extends CMap
 			$value=Yii::app()->getSecurityManager()->hashData(serialize($value));
 		if(version_compare(PHP_VERSION,'7.3.0','>='))
 			setcookie($cookie->name,$value,$this->getCookieOptions($cookie));
-		elseif(version_compare(PHP_VERSION,'5.2.0','>='))
-			setcookie($cookie->name,$value,$cookie->expire,$cookie->path,$cookie->domain,$cookie->secure,$cookie->httpOnly);
 		else
-			setcookie($cookie->name,$value,$cookie->expire,$cookie->path,$cookie->domain,$cookie->secure);
+		{
+			// Work around for setting samesite cookie prior PHP 7.3
+			// https://stackoverflow.com/questions/39750906/php-setcookie-samesite-strict/46971326#46971326
+			$path=$cookie->path.'; samesite='.$cookie->sameSite;
+			if(version_compare(PHP_VERSION,'5.2.0','>='))
+				setcookie($cookie->name,$value,$cookie->expire,$path,$cookie->domain,$cookie->secure,$cookie->httpOnly);
+			else
+				setcookie($cookie->name,$value,$cookie->expire,$path,$cookie->domain,$cookie->secure);
+		}
 	}
 	protected function removeCookie($cookie)
 	{
 		$cookie->expire=0;
 		if(version_compare(PHP_VERSION,'7.3.0','>='))
 			setcookie($cookie->name,'',$this->getCookieOptions($cookie));
-		elseif(version_compare(PHP_VERSION,'5.2.0','>='))
-			setcookie($cookie->name,'',$cookie->expire,$cookie->path,$cookie->domain,$cookie->secure,$cookie->httpOnly);
 		else
-			setcookie($cookie->name,'',$cookie->expire,$cookie->path,$cookie->domain,$cookie->secure);
+		{
+			// Work around for setting samesite cookie prior PHP 7.3
+			// https://stackoverflow.com/questions/39750906/php-setcookie-samesite-strict/46971326#46971326
+			$path=$cookie->path.'; samesite='.$cookie->sameSite;
+			if(version_compare(PHP_VERSION, '5.2.0', '>='))
+				setcookie($cookie->name, '', $cookie->expire, $path, $cookie->domain, $cookie->secure, $cookie->httpOnly);
+			else
+				setcookie($cookie->name, '', $cookie->expire, $path, $cookie->domain, $cookie->secure);
+		}
 	}
 	protected function getCookieOptions($cookie)
 	{
@@ -4714,7 +4726,7 @@ class CHttpSession extends CApplicationComponent implements IteratorAggregate,Ar
 			{
 				// Work around for setting samesite cookie prior PHP 7.3
 				// https://stackoverflow.com/questions/39750906/php-setcookie-samesite-strict/46971326#46971326
-				$path .= '; samesite=' . $samesite;
+				$path.='; samesite='.$samesite;
 				session_set_cookie_params($lifetime,$path,$domain,$secure,$httponly);
 			}
 		elseif(isset($httponly))
