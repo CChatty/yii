@@ -257,7 +257,7 @@ class CHttpSession extends CApplicationComponent implements IteratorAggregate,Ar
 			{
 				// Work around for setting samesite cookie prior PHP 7.3
 				// https://stackoverflow.com/questions/39750906/php-setcookie-samesite-strict/46971326#46971326
-				$path .= '; samesite=' . $samesite;
+				$path.='; samesite='.$samesite;
 				session_set_cookie_params($lifetime,$path,$domain,$secure,$httponly);
 			}
 		elseif(isset($httponly))
